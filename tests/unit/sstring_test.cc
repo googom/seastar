@@ -113,6 +113,8 @@ BOOST_AUTO_TEST_CASE(test_str_not_find_sstring) {
 }
 
 BOOST_AUTO_TEST_CASE(test_str_starts_with) {
+    BOOST_CHECK(std::string("abcdefg").starts_with("abcdefg"));
+    BOOST_CHECK(sstring("abcdefg").starts_with("abcdefg"));
     BOOST_CHECK(sstring("abcdefg").starts_with("ab"sv));
     BOOST_CHECK(sstring("abcde").starts_with('a'));
     BOOST_CHECK(sstring("abcde").starts_with("ab"));
@@ -125,6 +127,8 @@ BOOST_AUTO_TEST_CASE(test_str_starts_with) {
 }
 
 BOOST_AUTO_TEST_CASE(test_str_ends_with) {
+    BOOST_CHECK(std::string("abcdefg").ends_with("abcdefg"));
+    BOOST_CHECK(sstring("abcdefg").ends_with("abcdefg"));
     BOOST_CHECK(sstring("abcdefg").ends_with("efg"sv));
     BOOST_CHECK(sstring("abcde").ends_with('e'));
     BOOST_CHECK(sstring("abcde").ends_with("de"));
@@ -301,11 +305,9 @@ BOOST_AUTO_TEST_CASE(test_resize_and_overwrite) {
 
 BOOST_AUTO_TEST_CASE(test_compares_left_hand_not_string) {
     // mostly a compile test for non-sstring left-hand-side
-#if __cplusplus > 201703L
     BOOST_REQUIRE("a" == sstring("a"));
     BOOST_REQUIRE(std::string("a") == sstring("a"));
     BOOST_REQUIRE(std::string_view("a") == sstring("a"));
-#endif
 
 #ifdef __cpp_lib_three_way_comparison
     BOOST_REQUIRE("a" < sstring("b"));

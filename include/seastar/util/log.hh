@@ -22,13 +22,13 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/util/backtrace.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/log-impl.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <unordered_map>
 #include <exception>
 #include <iosfwd>
@@ -65,6 +65,12 @@ std::istream& operator>>(std::istream& in, log_level& level);
 
 SEASTAR_MODULE_EXPORT_END
 }
+
+template <>
+struct fmt::formatter<seastar::log_level> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(seastar::log_level level, fmt::format_context& ctx) const -> decltype(ctx.out());
+};
 
 // Boost doesn't auto-deduce the existence of the streaming operators for some reason
 
@@ -110,9 +116,9 @@ public:
         virtual internal::log_buf::inserter_iterator operator()(internal::log_buf::inserter_iterator) = 0;
     };
     template <typename Func>
-    SEASTAR_CONCEPT(requires requires (Func fn, internal::log_buf::inserter_iterator it) {
+    requires requires (Func fn, internal::log_buf::inserter_iterator it) {
         it = fn(it);
-    })
+    }
     class lambda_log_writer : public log_writer {
         Func _func;
     public:

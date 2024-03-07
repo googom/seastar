@@ -136,7 +136,7 @@ public:
     /**
      * The to_string return the value
      * formated as a json value
-     * @return the value foramted for json
+     * @return the value formatted for json
      */
     virtual std::string to_string() override
     {
@@ -199,7 +199,7 @@ public:
     jsonable& operator=(const jsonable&) = default;
     virtual ~jsonable() = default;
     /**
-     * create a foramted string of the object.
+     * create a formatted string of the object.
      * @return the object formated.
      */
     virtual std::string to_json() const = 0;
@@ -236,8 +236,8 @@ struct json_base : public jsonable {
     json_base operator=(const json_base&) = delete;
 
     /**
-     * create a foramted string of the object.
-     * @return the object formated.
+     * create a formatted string of the object.
+     * @return the object formatted.
      */
     virtual std::string to_json() const;
 
@@ -329,7 +329,7 @@ struct json_return_type {
  * return make_ready_future<json::json_return_type>(stream_range_as_array(res, [](const auto&i) {return i.first}));
  */
 template<typename Container, typename Func>
-SEASTAR_CONCEPT( requires requires (Container c, Func aa, output_stream<char> s) { { formatter::write(s, aa(*c.begin())) } -> std::same_as<future<>>; } )
+requires requires (Container c, Func aa, output_stream<char> s) { { formatter::write(s, aa(*c.begin())) } -> std::same_as<future<>>; }
 std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container val, Func fun) {
     return [val = std::move(val), fun = std::move(fun)](output_stream<char>&& s) mutable {
         return do_with(output_stream<char>(std::move(s)), Container(std::move(val)), Func(std::move(fun)), true, [](output_stream<char>& s, const Container& val, const Func& f, bool& first){

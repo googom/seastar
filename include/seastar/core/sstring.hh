@@ -32,7 +32,6 @@
 #include <vector>
 #include <unordered_map>
 #include <cstring>
-#include <stdexcept>
 #include <initializer_list>
 #include <istream>
 #include <ostream>
@@ -40,7 +39,6 @@
 #include <type_traits>
 #include <fmt/ostream.h>
 #endif
-#include <seastar/util/concepts.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #include <seastar/core/temporary_buffer.hh>
@@ -354,7 +352,7 @@ public:
      *  @param op the function object used for setting the new content of the string
      */
     template <class Operation>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<size_t, Operation, char_type*, size_t> )
+    requires std::is_invocable_r_v<size_t, Operation, char_type*, size_t>
     void resize_and_overwrite(size_t n, Operation op) {
         if (n > size()) {
             *this = basic_sstring(initialized_later(), n);
@@ -597,7 +595,7 @@ public:
     }
 
     constexpr bool starts_with(std::basic_string_view<char_type, traits_type> sv) const noexcept {
-        return size() > sv.size() && compare(0, sv.size(), sv) == 0;
+        return size() >= sv.size() && compare(0, sv.size(), sv) == 0;
     }
 
     constexpr bool starts_with(char_type c) const noexcept {
@@ -609,7 +607,7 @@ public:
     }
 
     constexpr bool ends_with(std::basic_string_view<char_type, traits_type> sv) const noexcept {
-        return size() > sv.size() && compare(size() - sv.size(), npos, sv) == 0;
+        return size() >= sv.size() && compare(size() - sv.size(), npos, sv) == 0;
     }
 
     constexpr bool ends_with(char_type c) const noexcept {

@@ -173,7 +173,6 @@ module seastar;
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/internal/magic.hh>
-#include "core/scollectd-impl.hh"
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
@@ -597,13 +596,13 @@ public:
 
 thread_local task_histogram this_thread_task_histogram;
 
-#endif
-
 void task_histogram_add_task(const task& t) {
-#ifdef SEASTAR_TASK_HISTOGRAM
     this_thread_task_histogram.add(t);
-#endif
 }
+#else
+void task_histogram_add_task(const task& t) {
+}
+#endif
 
 }
 
@@ -868,6 +867,7 @@ static void print_with_backtrace(const char* cause, bool oneline = false) noexce
     print_with_backtrace(buf, oneline);
 }
 
+#ifndef SEASTAR_ASAN_ENABLED
 // Installs signal handler stack for current thread.
 // The stack remains installed as long as the returned object is kept alive.
 // When it goes out of scope the previous handler is restored.
@@ -891,6 +891,15 @@ static decltype(auto) install_signal_handler_stack() {
         }
     });
 }
+#else
+// SIGSTKSZ is too small when using asan. We also don't need to
+// handle SIGSEGV ourselves when using asan, so just don't install
+// a signal handler stack.
+auto install_signal_handler_stack() {
+    struct nothing { ~nothing() {} };
+    return nothing{};
+}
+#endif
 
 static sstring shorten_name(const sstring& name, size_t length) {
     assert(!name.empty());
@@ -1315,7 +1324,7 @@ cpu_stall_detector_linux_perf_event::arm_timer() {
     auto period = _threshold * _report_at + _slack;
     uint64_t ns =  period / 1ns;
     _next_signal_time = reactor::now() + period;
-    
+
     // clear out any existing records in the ring buffer, so when we get interrupted next time
     // we have only the stack associated with that interrupt, and so we don't overflow.
     data_area_reader(*this).skip_all();
@@ -2450,21 +2459,24 @@ reactor::fdatasync(int fd) noexcept {
 
 // Note: terminate if arm_highres_timer throws
 // `when` should always be valid
+#ifndef HAVE_OSV
 void reactor::enable_timer(steady_clock_type::time_point when) noexcept
 {
-#ifndef HAVE_OSV
     itimerspec its;
     its.it_interval = {};
     its.it_value = to_timespec(when);
     _backend->arm_highres_timer(its);
+}
 #else
+void reactor::enable_timer(steady_clock_type::time_point when) noexcept
+{
     using ns = std::chrono::nanoseconds;
     WITH_LOCK(_timer_mutex) {
         _timer_due = std::chrono::duration_cast<ns>(when.time_since_epoch()).count();
         _timer_cond.wake_one();
     }
-#endif
 }
+#endif
 
 void reactor::add_timer(timer<steady_clock_type>* tmr) noexcept {
     if (queue_timer(tmr)) {
@@ -2636,30 +2648,30 @@ void reactor::register_metrics() {
             sm::make_counter("abandoned_failed_futures", _abandoned_failed_futures, sm::description("Total number of abandoned failed futures, futures destroyed while still containing an exception")),
     });
 
-    using namespace seastar::metrics;
+    namespace sm = seastar::metrics;
     _metric_groups.add_group("reactor", {
-        make_counter("fstream_reads", _io_stats.fstream_reads,
-                description(
+        sm::make_counter("fstream_reads", _io_stats.fstream_reads,
+                sm::description(
                         "Counts reads from disk file streams.  A high rate indicates high disk activity."
                         " Contrast with other fstream_read* counters to locate bottlenecks.")),
-        make_counter("fstream_read_bytes", _io_stats.fstream_read_bytes,
-                description(
+        sm::make_counter("fstream_read_bytes", _io_stats.fstream_read_bytes,
+                sm::description(
                         "Counts bytes read from disk file streams.  A high rate indicates high disk activity."
                         " Divide by fstream_reads to determine average read size.")),
-        make_counter("fstream_reads_blocked", _io_stats.fstream_reads_blocked,
-                description(
+        sm::make_counter("fstream_reads_blocked", _io_stats.fstream_reads_blocked,
+                sm::description(
                         "Counts the number of times a disk read could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
-        make_counter("fstream_read_bytes_blocked", _io_stats.fstream_read_bytes_blocked,
-                description(
+        sm::make_counter("fstream_read_bytes_blocked", _io_stats.fstream_read_bytes_blocked,
+                sm::description(
                         "Counts the number of bytes read from disk that could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
-        make_counter("fstream_reads_aheads_discarded", _io_stats.fstream_read_aheads_discarded,
-                description(
+        sm::make_counter("fstream_reads_aheads_discarded", _io_stats.fstream_read_aheads_discarded,
+                sm::description(
                         "Counts the number of times a buffer that was read ahead of time and was discarded because it was not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),
-        make_counter("fstream_reads_ahead_bytes_discarded", _io_stats.fstream_read_ahead_discarded_bytes,
-                description(
+        sm::make_counter("fstream_reads_ahead_bytes_discarded", _io_stats.fstream_read_ahead_discarded_bytes,
+                sm::description(
                         "Counts the number of buffered bytes that were read ahead of time and were discarded because they were not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),
     });
@@ -3136,10 +3148,8 @@ reactor::run_some_tasks() {
         insert_activating_task_queues();
         task_queue* tq = pop_active_task_queue(t_run_started);
         sched_print("running tq {} {}", (void*)tq, tq->_name);
-        tq->_current = true;
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         run_tasks(*tq);
-        tq->_current = false;
         t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
         account_runtime(*tq, delta);
@@ -3206,14 +3216,7 @@ int reactor::run() noexcept {
 }
 
 int reactor::do_run() {
-#ifndef SEASTAR_ASAN_ENABLED
-    // SIGSTKSZ is too small when using asan. We also don't need to
-    // handle SIGSEGV ourselves when using asan, so just don't install
-    // a signal handler stack.
     auto signal_stack = install_signal_handler_stack();
-#else
-    (void)install_signal_handler_stack;
-#endif
 
     register_metrics();
 
@@ -3928,12 +3931,6 @@ smp_options::smp_options(program_options::option_group* parent_group)
 {
 }
 
-thread_local scollectd::impl scollectd_impl;
-
-scollectd::impl & scollectd::get_impl() {
-    return scollectd_impl;
-}
-
 struct reactor_deleter {
     void operator()(reactor* p) {
         p->~reactor();
@@ -4074,6 +4071,14 @@ static void sigabrt_action() noexcept {
     print_with_backtrace("Aborting");
     reraise_signal(SIGABRT);
 }
+
+// We don't need to handle SIGSEGV when asan is enabled.
+#ifdef SEASTAR_ASAN_ENABLED
+template<>
+void install_oneshot_signal_handler<SIGSEGV, sigsegv_action>() {
+    (void)sigsegv_action;
+}
+#endif
 
 void smp::qs_deleter::operator()(smp_message_queue** qs) const {
     for (unsigned i = 0; i < smp::count; i++) {
@@ -4277,12 +4282,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
     pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
 
-#ifndef SEASTAR_ASAN_ENABLED
-    // We don't need to handle SIGSEGV when asan is enabled.
     install_oneshot_signal_handler<SIGSEGV, sigsegv_action>();
-#else
-    (void)sigsegv_action;
-#endif
     install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
 
 #ifdef SEASTAR_HAVE_DPDK
