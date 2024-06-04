@@ -25,9 +25,7 @@ module;
 
 #include <algorithm>
 #include <atomic>
-#ifdef SEASTAR_COROUTINES_ENABLED
 #include <coroutine>
-#endif
 #include <deque>
 #include <filesystem>
 #include <functional>
@@ -123,9 +121,8 @@ file_handle::to_file() && {
 }
 
 posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, bool nowait_works)
-        : _device_id(device_id)
-        , _nowait_works(nowait_works)
-        , _io_queue(engine().get_io_queue(_device_id))
+        : _nowait_works(nowait_works)
+        , _io_queue(engine().get_io_queue(device_id))
         , _open_flags(f)
         , _fd(fd)
 {
@@ -174,7 +171,7 @@ posix_file_impl::dup() {
     if (!_refcount) {
         _refcount = new std::atomic<unsigned>(1u);
     }
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _io_queue.dev_id(),
             _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment,
             _nowait_works);
     _refcount->fetch_add(1, std::memory_order_relaxed);
@@ -188,9 +185,8 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* re
         uint32_t disk_overwrite_dma_alignment,
         bool nowait_works)
         : _refcount(refcount)
-        , _device_id(device_id)
         , _nowait_works(nowait_works)
-        , _io_queue(engine().get_io_queue(_device_id))
+        , _io_queue(engine().get_io_queue(device_id))
         , _open_flags(f)
         , _fd(fd) {
     _memory_dma_alignment = memory_dma_alignment;
@@ -399,7 +395,6 @@ static std::optional<directory_entry_type> dirent_type(const linux_dirent64& de)
     return type;
 }
 
-#ifdef SEASTAR_COROUTINES_ENABLED
 static coroutine::experimental::generator<directory_entry> make_list_directory_generator(int fd) {
     temporary_buffer<char> buf(8192);
 
@@ -432,7 +427,6 @@ coroutine::experimental::generator<directory_entry> posix_file_impl::experimenta
     // is allocated out of this buffer, so the buffer would grow up to ~200 bytes
     return make_list_directory_generator(_fd);
 }
-#endif
 
 subscription<directory_entry>
 posix_file_impl::list_directory(std::function<future<> (directory_entry de)> next) {
@@ -1167,11 +1161,9 @@ file::list_directory(std::function<future<>(directory_entry de)> next) {
     return _file_impl->list_directory(std::move(next));
 }
 
-#ifdef SEASTAR_COROUTINES_ENABLED
 coroutine::experimental::generator<directory_entry> file::experimental_list_directory() {
     return _file_impl->experimental_list_directory();
 }
-#endif
 
 future<int> file::ioctl(uint64_t cmd, void* argp) noexcept {
     return _file_impl->ioctl(cmd, argp);
@@ -1376,7 +1368,6 @@ file_impl::dup() {
     throw std::runtime_error("this file type cannot be duplicated");
 }
 
-#ifdef SEASTAR_COROUTINES_ENABLED
 static coroutine::experimental::generator<directory_entry> make_list_directory_fallback_generator(file_impl& me) {
     queue<std::optional<directory_entry>> ents(16);
     auto lister = me.list_directory([&ents] (directory_entry de) {
@@ -1400,7 +1391,6 @@ static coroutine::experimental::generator<directory_entry> make_list_directory_f
 coroutine::experimental::generator<directory_entry> file_impl::experimental_list_directory() {
     return make_list_directory_fallback_generator(*this);
 }
-#endif
 
 future<int> file_impl::ioctl(uint64_t cmd, void* argp) noexcept {
     return make_exception_future<int>(std::runtime_error("this file type does not support ioctl"));

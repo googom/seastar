@@ -21,12 +21,10 @@
 
 #pragma once
 
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
-#include <concepts>
 #include <iostream>
-#include <memory>
+#include <optional>
 #include <type_traits>
 #include <fmt/core.h>
 #endif
@@ -102,7 +100,7 @@ public:
 }
 
 template <typename T>
-struct fmt::formatter<seastar::optimized_optional<T>> : fmt::formatter<std::string_view> {
+struct fmt::formatter<seastar::optimized_optional<T>> : fmt::formatter<string_view> {
     auto format(const seastar::optimized_optional<T>& opt, fmt::format_context& ctx) const {
         if (opt) {
             return fmt::format_to(ctx.out(), "{}", *opt);
