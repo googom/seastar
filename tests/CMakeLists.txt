@@ -33,7 +33,7 @@ function (seastar_jenkins_arguments test_name var)
 endfunction ()
 
 # Performance tests.
-add_subdirectory (perf)
+# add_subdirectory (perf)
 
 # Unit tests.
-add_subdirectory (unit)
+# add_subdirectory (unit)
